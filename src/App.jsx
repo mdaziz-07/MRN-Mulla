@@ -455,6 +455,15 @@ function StoreFront({ cart, addToCart, removeFromCart }) {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
 
+  // 👇 PASTE THIS NEW CODE HERE 👇
+  useEffect(() => {
+    // If this is the APK (Android App), jump to Admin Page automatically
+    if (Capacitor.isNativePlatform()) {
+      navigate('/admin');
+    }
+  }, [navigate]);
+  // 👆 END OF NEW CODE 👆
+
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
