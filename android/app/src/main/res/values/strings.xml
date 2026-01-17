@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MRN Mulla</string>
+    <string name="title_activity_main">MRN Mulla</string>
+    <string name="package_name">com.mrnmulla.app</string>
+    <string name="custom_url_scheme">com.mrnmulla.app</string>
+</resources>
