@@ -74,7 +74,6 @@ function LocationMarker({ location, setLocation }) {
   return location ? <Marker position={[location.lat, location.long]} /> : null;
 }
 
-// AUTO-REDIRECT TO GPS LOCATION
 function RecenterAutomatically({ location }) {
   const map = useMap();
   useEffect(() => {
@@ -101,7 +100,12 @@ function AdminRoute({ children }) {
 
   const login = async (e) => { 
       e.preventDefault(); 
-      if (Notification.permission !== "granted") Notification.requestPermission();
+      if (Notification.permission !== "granted") await Notification.requestPermission();
+      if ('speechSynthesis' in window) {
+          const warmUp = new SpeechSynthesisUtterance("");
+          warmUp.volume = 0; 
+          window.speechSynthesis.speak(warmUp);
+      }
       try { await signInWithEmailAndPassword(auth, email, password); } catch { alert("Login failed"); } 
   };
 
@@ -143,18 +147,14 @@ function AdminPanel() {
   const isFirstRun = useRef(true);
 
   useEffect(() => {
-    // 1. ORDERS LISTENER (With Native Change Detection)
     const qOrders = query(collection(db, "orders"), orderBy("timestamp", "desc"), limit(20));
-    
     const unsubOrders = onSnapshot(qOrders, (snapshot) => {
       const newOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
       if (isFirstRun.current) {
           isFirstRun.current = false;
           setOrders(newOrders);
           return;
       }
-
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added") {
             speakOrderAlert();
@@ -163,7 +163,6 @@ function AdminPanel() {
             setTimeout(() => setShowNotification(false), 5000);
         }
       });
-
       if (dateRange === '7' && !isLoading) setOrders(newOrders);
     });
 
@@ -200,11 +199,8 @@ function AdminPanel() {
   const handleSaveProduct = async (e) => {
     e.preventDefault();
     if (!productForm.name || !productForm.price || !productForm.category) return alert("Fill Name, Price & Category");
-    if (productForm.imageUrl && (productForm.imageUrl.includes("google.com/search") || productForm.imageUrl.includes("share.google"))) return alert("❌ Invalid Image Link.");
-
     const docId = isEditing || productForm.name.trim().toLowerCase().replace(/[^a-z0-9]/g, '-');
     const payload = { ...productForm, price: Number(productForm.price), costPrice: Number(productForm.costPrice) || Number(productForm.price) * 0.8, stock: Number(productForm.stock) || 0, createdAt: serverTimestamp() };
-
     await setDoc(doc(db, "products", docId), payload);
     alert(isEditing ? "Updated!" : "Added!");
     setProductForm({ name: '', price: '', costPrice: '', category: '', packSize: '', unit: 'pkt', stock: '', imageUrl: '' });
@@ -212,21 +208,11 @@ function AdminPanel() {
   };
 
   const bulkImport = async () => {
-    if(!confirm("Import Kiko Store Items?")) return;
+    if(!confirm("Import Items?")) return;
     const batch = writeBatch(db);
     const items = [
-      { n: "Rupani's Ginger & Garlic Paste", p: 5, c: "Spices", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/51+uL9tXbBL._AC_UF1000,1000_QL80_.jpg" },
-      { n: "EVEREST PASTA MASALA", p: 5, c: "Spices", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/61y8q2-o6eL.jpg" },
-      { n: "BOOST", p: 5, c: "Beverages", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/61lXG-1+FBL.jpg" },
-      { n: "Fevikwik", p: 5, c: "Household", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/61-2-V+9+2L.jpg" },
-      { n: "Boroplus Ayurvedic", p: 5, c: "Personal Care", s: "5", u: "ML", img: "https://m.media-amazon.com/images/I/51p+yX-6+ZL.jpg" },
-      { n: "Sunfeast YiPPee! Noodles", p: 5, c: "Snacks", s: "30", u: "GRAMS", img: "https://m.media-amazon.com/images/I/81tic-3kZ-L.jpg" },
-      { n: "Maggi Masala Magic", p: 5, c: "Spices", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/81D+621wQZL.jpg" },
-      { n: "Nataraj Be Bold Pencils", p: 5, c: "Stationery", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/71J1kC-x0pL.jpg" },
-      { n: "Dynobite", p: 5, c: "Snacks", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/61N+C+5+uZL.jpg" },
-      { n: "Dove Conditioner", p: 5, c: "Personal Care", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/51wXpMv-wGL.jpg" },
-      { n: "Steel Safety Pins", p: 5, c: "Household", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/61zC+p-p+ZL.jpg" },
-      { n: "Ponds Cold Cream", p: 5, c: "Personal Care", s: "6", u: "ML", img: "https://m.media-amazon.com/images/I/51b1fWl0cCL.jpg" }
+      { n: "Rupani's Ginger & Garlic Paste", p: 5, c: "Spices", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/51+uL9tXbBL.jpg" },
+      { n: "EVEREST PASTA MASALA", p: 5, c: "Spices", s: "1", u: "UNIT", img: "https://m.media-amazon.com/images/I/61y8q2-o6eL.jpg" }
     ];
     items.forEach(i => {
         const id = i.n.toLowerCase().replace(/[^a-z0-9]/g, '-');
@@ -242,11 +228,8 @@ function AdminPanel() {
   const totalRevenue = validOrders.reduce((sum, o) => sum + o.total, 0);
   const totalProfit = validOrders.reduce((sum, o) => sum + (o.total - o.items.reduce((c, i) => c + ((i.costPrice || i.price * 0.8) * i.qty), 0)), 0);
 
-  const enableVoice = () => { const msg = new SpeechSynthesisUtterance("Voice Enabled"); window.speechSynthesis.speak(msg); };
-
   return (
     <div className="bg-gray-100 min-h-screen pb-20 font-sans">
-      
       {showNotification && (
           <div className="fixed top-4 left-4 right-4 bg-green-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-in slide-in-from-top-2">
               <div className="flex items-center gap-3">
@@ -260,10 +243,9 @@ function AdminPanel() {
       <div className="bg-green-700 text-white p-4 sticky top-0 z-10 shadow-md flex justify-between items-center">
         <h1 className="text-xl font-bold">KGN Admin</h1>
         <div className="flex gap-3">
-             <button onClick={enableVoice} className="bg-green-800 p-2 rounded-full border border-green-600 animate-pulse text-white flex gap-1 items-center px-3"><Mic size={16}/> <span className="text-xs font-bold">Voice</span></button>
              {activeTab === 'products' && (
                 <div className="flex gap-2">
-                    <button onClick={bulkImport} className="bg-green-800 p-2 rounded-full border border-green-600 shadow-sm" title="Import Video Items"><DownloadCloud size={20}/></button>
+                    <button onClick={bulkImport} className="bg-green-800 p-2 rounded-full border border-green-600 shadow-sm"><DownloadCloud size={20}/></button>
                     <button onClick={() => { setShowAddModal(true); setIsEditing(null); setProductForm({ name: '', price: '', costPrice: '', category: '', packSize: '', unit: 'pkt', stock: '', imageUrl: '' }) }} className="bg-white text-green-700 p-2 rounded-full shadow"><Plus size={24} /></button>
                 </div>
             )}
@@ -289,7 +271,6 @@ function AdminPanel() {
              </div>
         )}
 
-        {/* ORDERS TAB */}
         {activeTab === 'orders' && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {orders.length === 0 ? <p className="text-gray-400 text-sm p-4">No orders found.</p> : orders.map(order => (
@@ -317,7 +298,6 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* PRODUCTS TAB */}
         {activeTab === 'products' && (
           <div>
             <div className="flex justify-between items-center mb-3"><h2 className="font-bold text-gray-500 text-sm">Total Items: {products.length}</h2></div>
@@ -325,7 +305,7 @@ function AdminPanel() {
                 <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl relative max-h-[90vh] overflow-y-auto">
                         <button onClick={() => setShowAddModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={24}/></button>
-                        <h2 className="text-lg font-bold mb-6 text-gray-800 border-b pb-2">{isEditing ? 'Edit Product' : 'Add New Product'}</h2>
+                        <h2 className="text-lg font-bold mb-6 text-gray-800 border-b pb-2">{isEditing ? 'Edit' : 'Add'} Product</h2>
                         <form onSubmit={handleSaveProduct} className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Category</label><input className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={productForm.category} onChange={e => setProductForm({...productForm, category: e.target.value})} list="cats" /><datalist id="cats">{existingCategories.map(c => <option key={c} value={c} />)}</datalist></div>
@@ -337,7 +317,6 @@ function AdminPanel() {
                                 <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Unit</label><select className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={productForm.unit} onChange={e => setProductForm({...productForm, unit: e.target.value})}><option value="kg">kg</option><option value="g">g</option><option value="L">L</option><option value="ml">ml</option><option value="pkt">pkt</option><option value="pcs">pcs</option></select></div>
                                 <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Price</label><input type="number" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={productForm.price} onChange={e => setProductForm({...productForm, price: e.target.value})} /></div>
                             </div>
-                            <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cost Price</label><input type="number" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={productForm.costPrice} onChange={e => setProductForm({...productForm, costPrice: e.target.value})} /></div>
                             <div><label className="block text-xs font-bold text-gray-500 uppercase mb-1">Image URL</label><input className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={productForm.imageUrl} onChange={e => setProductForm({...productForm, imageUrl: e.target.value})} /></div>
                             <button className="w-full bg-green-600 text-white py-4 rounded-xl font-bold shadow-lg">{isEditing ? 'Update' : 'Save'}</button>
                         </form>
@@ -349,7 +328,7 @@ function AdminPanel() {
                     <div key={p.id} className="bg-white p-3 rounded-lg shadow-sm flex items-center justify-between border border-gray-200 hover:border-blue-300 transition-colors">
                         <div className="flex items-center gap-4">
                             <img src={p.imageUrl} onError={(e) => {e.target.onerror=null; e.target.src="https://via.placeholder.com/150?text=No+Img"}} className="h-12 w-12 object-contain rounded bg-gray-50 border"/>
-                            <div><h4 className="font-bold text-gray-800 text-sm">{p.name}</h4><div className="flex gap-2 mt-1"><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">Stock: {p.stock} {p.unit}</span><span className="text-xs bg-blue-50 px-2 py-0.5 rounded text-blue-600">Size: {p.packSize}{p.unit}</span></div></div>
+                            <div><h4 className="font-bold text-gray-800 text-sm">{p.name}</h4><div className="flex gap-2 mt-1"><span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">Stock: {p.stock} {p.unit}</span></div></div>
                         </div>
                         <div className="flex items-center gap-4"><span className="font-bold text-lg text-green-700">₹{p.price}</span><div className="flex gap-1"><button onClick={() => { setProductForm({...p, costPrice: p.costPrice||'', unit: p.unit||'pkt'}); setIsEditing(p.id); setShowAddModal(true); }} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Edit2 size={18}/></button><button onClick={() => { if(confirm("Delete?")) deleteDoc(doc(db, "products", p.id)) }} className="p-2 text-red-300 hover:text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18}/></button></div></div>
                     </div>
@@ -358,7 +337,6 @@ function AdminPanel() {
           </div>
         )}
 
-        {/* REPORTS TAB */}
         {activeTab === 'reports' && (
            <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
@@ -366,13 +344,12 @@ function AdminPanel() {
                   <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100"><div className="text-xs font-bold uppercase opacity-60 mb-1 text-green-600">Net Profit</div><div className="text-2xl font-bold text-green-600">₹{totalProfit.toFixed(0)}</div></div>
               </div>
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="bg-gray-50 p-3 border-b border-gray-200 flex justify-between font-bold text-xs text-gray-500 uppercase"><span>Date</span><span>Customer</span><span>Status</span><span>Amt</span></div>
-                  {validOrders.length === 0 ? (<div className="p-8 text-center text-gray-400 text-sm">No data loaded. Use "Load Data".</div>) : (
+                  <div className="bg-gray-50 p-3 border-b border-gray-200 flex justify-between font-bold text-xs text-gray-500 uppercase"><span>Date</span><span>Customer</span><span>Amt</span></div>
+                  {validOrders.length === 0 ? (<div className="p-8 text-center text-gray-400 text-sm">No data loaded.</div>) : (
                       validOrders.map(order => (
-                          <div key={order.id} className="p-3 border-b border-gray-100 flex justify-between items-center text-sm last:border-0 hover:bg-gray-50">
+                          <div key={order.id} className="p-3 border-b border-gray-100 flex justify-between items-center text-sm hover:bg-gray-50">
                               <span className="text-gray-500 w-24 text-xs">{formatDate(order.timestamp)}</span>
                               <span className="font-bold flex-1 truncate text-xs">{order.customerName}</span>
-                              <span className={`text-[10px] font-bold px-2 py-1 rounded w-20 text-center ${order.status === 'Delivered' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>{order.status}</span>
                               <span className="font-bold text-right w-16 text-xs">₹{order.total}</span>
                           </div>
                       ))
@@ -381,9 +358,8 @@ function AdminPanel() {
            </div>
         )}
 
-        {/* ORDER VIEW MODAL */}
         {viewOrder && (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                 <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
                     <div className="bg-green-700 p-4 text-white flex justify-between items-center"><h2 className="font-bold">Order Details</h2><button onClick={() => setViewOrder(null)}><X size={24}/></button></div>
                     <div className="p-6 max-h-[80vh] overflow-y-auto">
@@ -394,16 +370,14 @@ function AdminPanel() {
                         <div className="bg-gray-50 p-3 rounded-lg mb-4 text-sm border border-gray-100">
                             <p className="font-bold text-gray-500 text-xs uppercase mb-1">Delivery Address</p><p>{viewOrder.address}</p>
                             {viewOrder.location && (
-                                <a href={`http://googleusercontent.com/maps.google.com/?q=${viewOrder.location.lat},${viewOrder.location.long}`} target="_blank" rel="noreferrer" className="text-blue-600 underline flex items-center gap-1 mt-2 font-bold">
-                                    <MapPin size={14}/> Open Map Location
-                                </a>
+                                <a href={`http://googleusercontent.com/maps.google.com/?q=${viewOrder.location.lat},${viewOrder.location.long}`} target="_blank" rel="noreferrer" className="text-blue-600 underline flex items-center gap-1 mt-2 font-bold"><MapPin size={14}/> Open Map Location</a>
                             )}
                         </div>
                         <h4 className="font-bold border-b pb-2 mb-2">Items</h4>
                         <div className="space-y-3">
                             {viewOrder.items.map((item, i) => (
                                 <div key={i} className="flex justify-between items-center">
-                                    <div className="flex items-center gap-3"><img src={item.imageUrl} onError={(e) => {e.target.onerror=null; e.target.src="https://via.placeholder.com/50"}} className="w-10 h-10 object-contain rounded bg-gray-50 border"/><div><p className="font-bold text-sm">{item.name}</p><p className="text-xs text-gray-500">{item.packSize}{item.unit}</p></div></div>
+                                    <div className="flex items-center gap-3"><img src={item.imageUrl} className="w-10 h-10 object-contain rounded bg-gray-50 border"/><div><p className="font-bold text-sm">{item.name}</p><p className="text-xs text-gray-500">{item.packSize}{item.unit}</p></div></div>
                                     <div className="text-right"><p className="font-bold">x{item.qty}</p><p className="text-xs text-gray-500">₹{item.price * item.qty}</p></div>
                                 </div>
                             ))}
@@ -429,7 +403,6 @@ function StoreFront({ cart, addToCart, removeFromCart }) {
   const [search, setSearch] = useState('');
   const navigate = useNavigate();
 
-  // If App (APK), go to Admin
   useEffect(() => { if (Capacitor.isNativePlatform()) navigate('/admin'); }, [navigate]);
 
   useEffect(() => {
@@ -444,8 +417,7 @@ function StoreFront({ cart, addToCart, removeFromCart }) {
 
   const filtered = products.filter(p => {
     const matchesCategory = activeCategory === 'All' || p.category === activeCategory;
-    const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
-    return matchesCategory && matchesSearch;
+    return p.name.toLowerCase().includes(search.toLowerCase()) && matchesCategory;
   });
 
   const cartCount = cart.reduce((acc, item) => acc + item.qty, 0);
@@ -468,8 +440,7 @@ function StoreFront({ cart, addToCart, removeFromCart }) {
         </div>
         <div className="flex gap-2">
             <div className="bg-white rounded-full flex items-center px-4 py-2.5 flex-1 shadow-inner">
-                <Search size={18} className="text-gray-400"/>
-                <input placeholder="Search Products" className="bg-transparent border-none outline-none text-sm w-full ml-2 text-gray-700 placeholder-gray-400" onChange={(e) => setSearch(e.target.value)} />
+                <Search size={18} className="text-gray-400"/><input placeholder="Search" className="bg-transparent border-none outline-none text-sm w-full ml-2 text-gray-700" onChange={(e) => setSearch(e.target.value)} />
             </div>
             <div className="bg-white rounded-full w-10 flex items-center justify-center text-gray-500 shadow-sm"><ChevronDown size={20}/></div>
         </div>
@@ -479,32 +450,23 @@ function StoreFront({ cart, addToCart, removeFromCart }) {
           {categories.map(cat => (
               <div key={cat} onClick={() => setActiveCategory(cat)} className="flex flex-col items-center min-w-[70px] cursor-pointer">
                   <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-1 border-2 ${activeCategory === cat ? 'border-[#013a2b] bg-[#e6fffa]' : 'border-gray-100 bg-gray-50'}`}>
-                      <span className="text-[10px] font-bold text-center leading-none text-[#013a2b]">{cat.substring(0,2)}</span>
+                      <span className="text-[10px] font-bold text-[#013a2b]">{cat.substring(0,2)}</span>
                   </div>
-                  <span className={`text-[10px] font-bold text-center ${activeCategory === cat ? 'text-[#013a2b]' : 'text-gray-500'}`}>{cat}</span>
+                  <span className={`text-[10px] font-bold ${activeCategory === cat ? 'text-[#013a2b]' : 'text-gray-500'}`}>{cat}</span>
               </div>
           ))}
       </div>
 
       <div className="px-3 pb-4">
-        <div className="flex justify-between items-center mb-3 px-1">
-            <h2 className="font-bold text-gray-700 text-sm">All ({filtered.length})</h2>
-            <div className="flex items-center gap-1 text-xs text-gray-500">Sort By <ChevronDown size={12}/></div>
-        </div>
         <div className="grid grid-cols-3 gap-2">
             {filtered.map(p => (
-            <div key={p.id} className="bg-white p-2 rounded-lg shadow-[0_1px_2px_rgba(0,0,0,0.1)] border border-gray-100 flex flex-col justify-between h-full relative">
-                <div className="h-20 w-full flex items-center justify-center bg-white mb-1 relative">
-                    <img src={p.imageUrl} onError={(e) => e.target.src = 'https://via.placeholder.com/150'} className="h-full w-full object-contain" />
-                </div>
-                <div className="mb-1">
-                    <h3 className="font-bold text-[11px] text-gray-800 leading-tight line-clamp-2 h-8">{p.name}</h3>
-                    <p className="text-[9px] text-gray-400 font-medium uppercase mt-0.5">{p.packSize || '1'} {p.unit || 'UNIT'}</p>
-                </div>
+            <div key={p.id} className="bg-white p-2 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-between h-full">
+                <div className="h-20 w-full flex items-center justify-center mb-1 relative"><img src={p.imageUrl} onError={(e) => e.target.src = 'https://via.placeholder.com/150'} className="h-full w-full object-contain" /></div>
+                <div className="mb-1"><h3 className="font-bold text-[11px] text-gray-800 line-clamp-2 h-8">{p.name}</h3></div>
                 <div className="flex flex-col gap-1 mt-auto">
                     <span className="font-bold text-sm text-black">₹{p.price}</span>
                     {getQty(p.id) === 0 ? (
-                        <button onClick={() => addToCart(p)} className="w-full bg-[#1a1a1a] text-white py-1 rounded text-xs font-bold shadow-md hover:bg-black flex items-center justify-center"><Plus size={14}/></button>
+                        <button onClick={() => addToCart(p)} className="w-full bg-[#1a1a1a] text-white py-1 rounded text-xs font-bold shadow-md"><Plus size={14}/></button>
                     ) : (
                         <div className="flex items-center justify-between bg-white border border-gray-300 rounded h-6 px-1">
                             <button onClick={() => removeFromCart(p)} className="text-gray-600"><Minus size={12}/></button>
@@ -519,15 +481,7 @@ function StoreFront({ cart, addToCart, removeFromCart }) {
       </div>
 
       {cartCount > 0 && (
-          <div className="fixed bottom-4 left-3 right-3 z-30 animate-in slide-in-from-bottom-4 duration-300">
-              <div onClick={() => navigate('/checkout')} className="bg-[#013a2b] text-white p-3 rounded-xl shadow-2xl flex justify-between items-center cursor-pointer">
-                  <div className="flex flex-col pl-2">
-                      <span className="text-[10px] font-bold text-green-200 uppercase tracking-wide">{cartCount} ITEMS</span>
-                      <span className="font-bold text-base leading-none">₹{cartTotal}</span>
-                  </div>
-                  <div className="flex items-center gap-1 font-bold text-sm pr-2">View Cart <ChevronRight size={16}/></div>
-              </div>
-          </div>
+          <div className="fixed bottom-4 left-3 right-3 z-30"><div onClick={() => navigate('/checkout')} className="bg-[#013a2b] text-white p-3 rounded-xl shadow-2xl flex justify-between items-center cursor-pointer"><div className="flex flex-col pl-2"><span className="text-[10px] font-bold text-green-200 tracking-wide uppercase">{cartCount} ITEMS</span><span className="font-bold text-base leading-none">₹{cartTotal}</span></div><div className="flex items-center gap-1 font-bold text-sm pr-2">View Cart <ChevronRight size={16}/></div></div></div>
       )}
     </div>
   );
@@ -558,100 +512,54 @@ function Checkout({ cart, clearCart }) {
     if (!("geolocation" in navigator)) { alert("GPS not supported"); return setLoadingLoc(false); }
     navigator.geolocation.getCurrentPosition(
       (pos) => { setLocation({ lat: pos.coords.latitude, long: pos.coords.longitude }); setLoadingLoc(false); },
-      (error) => { setLoadingLoc(false); alert("Allow Location Access in Browser Settings"); }, { enableHighAccuracy: true }
+      (error) => { setLoadingLoc(false); alert("Allow Location Access"); }, { enableHighAccuracy: true }
     );
   };
 
   const handleRazorpay = async () => {
-      // VALIDATION
-      if (!form.name || !form.mobile || !location) return alert("Please fill Name, Mobile & Select Location on Map.");
-      
+      if (Capacitor.isNativePlatform()) return alert("Please use our website for online payments."); // BLOCK IN APK
+      if (!form.name || !form.mobile || !location) return alert("Fill Name, Mobile & Select Location.");
       const res = await loadRazorpayScript();
-      if (!res) return alert('Razorpay failed to load');
+      if (!res) return alert('Razorpay failed');
 
-      // FIXED: Client-side only payment (Works in APK without backend)
       const options = {
           key: RAZORPAY_KEY_ID, 
           amount: Math.round(total * 100), 
           currency: "INR",
           name: "MRN Mulla Kirana",
           description: "Grocery Order",
-          // 👇 IMPORTANT: Add your Configuration ID here to show UPI
-          config_id: "conf_YOUR_ID_FROM_DASHBOARD", 
-          
-          handler: async function (response) { 
-              await confirmOrder(`Prepaid (ID: ${response.razorpay_payment_id})`); 
-          },
+          handler: async function (response) { await confirmOrder(`Prepaid (ID: ${response.razorpay_payment_id})`); },
           prefill: { name: form.name, contact: form.mobile, email: "customer@example.com" },
           theme: { color: "#013a2b" },
-          modal: { ondismiss: function() { alert("Payment Cancelled"); } }
       };
       const paymentObject = new window.Razorpay(options);
       paymentObject.open();
   };
 
   const confirmOrder = async (method) => {
-    if (!form.name || !form.mobile || !location) return alert("Please fill details & mark location.");
-    
+    if (!form.name || !form.mobile || !location) return alert("Fill details & mark location.");
     const fullAddress = form.house ? `${form.house}, ${form.area}` : form.area; 
     const orderData = { customerName: form.name, mobile: form.mobile, address: fullAddress, location, items: cart, total, paymentMethod: method, status: 'Received', timestamp: serverTimestamp() };
     await addDoc(collection(db, "orders"), orderData);
     await sendDiscordAlert(orderData); 
-    alert("Order Placed Successfully!"); clearCart(); navigate('/');
+    alert("Order Placed!"); clearCart(); navigate('/');
   };
 
-  if (cart.length === 0) return <div className="p-10 text-center text-gray-500 font-medium">Your cart is empty <br/><button onClick={() => navigate('/')} className="text-[#013a2b] mt-4 font-bold">Go Shop</button></div>;
+  if (cart.length === 0) return <div className="p-10 text-center"><button onClick={() => navigate('/')} className="text-[#013a2b] font-bold">Go Shop</button></div>;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 font-sans">
       <div className="bg-white p-4 shadow-sm mb-2"><h2 className="font-bold text-lg text-gray-800">Cart Items</h2></div>
-      
       <div className="bg-white px-4 py-2 mb-2">
-          {cart.map(item => (
-              <div key={item.id} className="flex justify-between items-center py-3 border-b border-gray-100 last:border-0">
-                  <div className="flex gap-3 items-center">
-                      <img src={item.imageUrl} className="w-10 h-10 object-contain"/>
-                      <div>
-                          <p className="text-sm font-bold text-gray-800">{item.name}</p>
-                          <p className="text-xs text-gray-500">{item.packSize} {item.unit}</p>
-                          <p className="text-xs font-bold text-black mt-0.5">₹{item.price}</p>
-                      </div>
-                  </div>
-                  <div className="font-bold text-sm">x{item.qty}</div>
-              </div>
-          ))}
+          {cart.map(item => (<div key={item.id} className="flex justify-between items-center py-3 border-b border-gray-100 last:border-0"><div className="flex gap-3 items-center"><img src={item.imageUrl} className="w-10 h-10 object-contain"/><div><p className="text-sm font-bold text-gray-800">{item.name}</p><p className="text-xs font-bold mt-0.5">₹{item.price}</p></div></div><div className="font-bold text-sm">x{item.qty}</div></div>))}
       </div>
-
-      <div className="bg-white p-4 mb-2">
-          <div className="flex justify-between text-sm mb-2 text-gray-600"><span>Sub Total</span><span>₹{total}</span></div>
-          <div className="flex justify-between text-sm mb-2 text-gray-600"><span>Delivery Charges</span><span className="text-green-600">Free</span></div>
-          <div className="flex justify-between font-bold text-lg pt-2 border-t text-black"><span>Total</span><span>₹{total}</span></div>
+      <div className="bg-white p-4 mb-2"><div className="flex justify-between font-bold text-lg pt-2 text-black"><span>Total</span><span>₹{total}</span></div></div>
+      <div className="bg-white p-4 mb-4"><h2 className="font-bold text-sm mb-3 uppercase text-gray-500">Address</h2><input placeholder="Mobile" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm mb-2" value={form.mobile} onChange={e => { setForm({...form, mobile: e.target.value}); if(e.target.value.length === 10) checkPreviousOrder(e.target.value); }} /><input placeholder="Name" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm mb-2" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /><div className="flex gap-2 mb-2"><input placeholder="House" className="w-1/2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={form.house} onChange={e => setForm({...form, house: e.target.value})} /><input placeholder="Area" className="w-1/2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={form.area} onChange={e => setForm({...form, area: e.target.value})} /></div>
+        <div className="h-96 rounded-lg overflow-hidden border border-gray-200 relative mb-4"><MapContainer center={location ? [location.lat, location.long] : DEFAULT_MAP_CENTER} zoom={14} className="h-full w-full"><TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /><LocationMarker location={location} setLocation={setLocation} /><RecenterAutomatically location={location} /></MapContainer></div>
+        <button onClick={getGPS} className="w-full bg-blue-50 text-blue-600 py-3 rounded-lg font-bold text-xs mb-2">Use My GPS</button>
       </div>
-
-      <div className="bg-white p-4 mb-4">
-        <h2 className="font-bold text-sm mb-3 uppercase text-gray-500">Shipping Address</h2>
-        <input placeholder="Mobile Number" type="number" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm mb-2" value={form.mobile} onChange={e => { setForm({...form, mobile: e.target.value}); if(e.target.value.length === 10) checkPreviousOrder(e.target.value); }} />
-        <input placeholder="Name" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm mb-2" value={form.name} onChange={e => setForm({...form, name: e.target.value})} />
-        <div className="flex gap-2 mb-2">
-            <input placeholder="House No" className="w-1/2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={form.house} onChange={e => setForm({...form, house: e.target.value})} />
-            <input placeholder="Area" className="w-1/2 p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm" value={form.area} onChange={e => setForm({...form, area: e.target.value})} />
-        </div>
-        
-        {/* LARGE MAP FOR PINNING */}
-        <div className="h-96 rounded-lg overflow-hidden border border-gray-200 relative mb-4 z-0">
-            <MapContainer center={location ? [location.lat, location.long] : DEFAULT_MAP_CENTER} zoom={14} className="h-full w-full">
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='© OpenStreetMap' />
-                <LocationMarker location={location} setLocation={setLocation} />
-                <RecenterAutomatically location={location} />
-            </MapContainer>
-            {!location && <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-white px-3 py-1 text-xs font-bold shadow rounded-full z-[400] text-red-500">Tap Map to Pin Location</div>}
-        </div>
-        
-        <button onClick={getGPS} className="w-full bg-blue-50 text-blue-600 py-3 rounded-lg font-bold text-xs flex items-center justify-center gap-2 mb-2"><Crosshair size={16}/> {loadingLoc ? "Locating..." : "Use My GPS Location"}</button>
-      </div>
-
       <div className="fixed bottom-0 left-0 right-0 bg-white p-4 border-t flex gap-3 z-30">
-          <button onClick={handleRazorpay} className="flex-1 bg-[#013a2b] text-white py-3 rounded-lg font-bold text-sm shadow-lg flex items-center justify-center gap-2"><CreditCard size={16}/> Pay Online</button>
+          <button onClick={handleRazorpay} className="flex-1 bg-[#013a2b] text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2"><CreditCard size={16}/> Pay Online</button>
           <button onClick={() => confirmOrder('COD')} className="flex-1 bg-white border border-gray-300 text-gray-700 py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2"><Banknote size={16}/> COD</button>
       </div>
     </div>
