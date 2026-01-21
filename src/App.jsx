@@ -101,25 +101,9 @@ function AdminRoute({ children }) {
 
   const login = async (e) => { 
       e.preventDefault(); 
-      
-      // 1. ASK FOR NOTIFICATION PERMISSION AUTOMATICALLY ON LOGIN
-      if (Notification.permission !== "granted") {
-          await Notification.requestPermission();
-      }
-
-      // 2. WARM UP AUDIO ENGINE (Unlock Sound on Android/iOS)
-      // This plays a silent sound so the browser allows the next loud one
-      if ('speechSynthesis' in window) {
-          const warmUp = new SpeechSynthesisUtterance("");
-          warmUp.volume = 0; // Silent
-          window.speechSynthesis.speak(warmUp);
-      }
-      
-      try { 
-        await signInWithEmailAndPassword(auth, email, password); 
-      } catch (error) { 
-        alert("Error: " + error.message); // 👈 This will tell us exactly what is wrong on the phone screen
-      }
+      if (Notification.permission !== "granted") Notification.requestPermission();
+      try { await signInWithEmailAndPassword(auth, email, password); } catch { alert("Login failed"); } 
+  };
 
   if (!Capacitor.isNativePlatform()) return null;
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-green-700">Verifying...</div>;
@@ -156,7 +140,6 @@ function AdminPanel() {
   const [isLoading, setIsLoading] = useState(false);
   const [showNotification, setShowNotification] = useState(false); 
    
-  // Ref to track first load
   const isFirstRun = useRef(true);
 
   useEffect(() => {
@@ -166,29 +149,17 @@ function AdminPanel() {
     const unsubOrders = onSnapshot(qOrders, (snapshot) => {
       const newOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       
-      // Ignore the very first load (don't shout for existing orders)
       if (isFirstRun.current) {
           isFirstRun.current = false;
           setOrders(newOrders);
           return;
       }
 
-      // Check for actual NEW additions
       snapshot.docChanges().forEach((change) => {
         if (change.type === "added") {
-            // A NEW ORDER JUST ARRIVED!
             speakOrderAlert();
             setShowNotification(true);
-            
-            // Try Notification if permission was granted at login
-            if (Notification.permission === "granted") {
-                new Notification("New Order Received!", { 
-                    body: `Amount: ₹${change.doc.data().total}`,
-                    icon: '/icon.png'
-                });
-            }
-            
-            // Auto hide visual popup after 5s
+            if (Notification.permission === "granted") new Notification("New Order Received!");
             setTimeout(() => setShowNotification(false), 5000);
         }
       });
@@ -196,7 +167,6 @@ function AdminPanel() {
       if (dateRange === '7' && !isLoading) setOrders(newOrders);
     });
 
-    // 2. PRODUCTS LISTENER
     const qProd = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProd = onSnapshot(qProd, (snapshot) => {
        const prods = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -272,10 +242,11 @@ function AdminPanel() {
   const totalRevenue = validOrders.reduce((sum, o) => sum + o.total, 0);
   const totalProfit = validOrders.reduce((sum, o) => sum + (o.total - o.items.reduce((c, i) => c + ((i.costPrice || i.price * 0.8) * i.qty), 0)), 0);
 
+  const enableVoice = () => { const msg = new SpeechSynthesisUtterance("Voice Enabled"); window.speechSynthesis.speak(msg); };
+
   return (
     <div className="bg-gray-100 min-h-screen pb-20 font-sans">
       
-      {/* IN-APP VISUAL NOTIFICATION POPUP */}
       {showNotification && (
           <div className="fixed top-4 left-4 right-4 bg-green-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between animate-in slide-in-from-top-2">
               <div className="flex items-center gap-3">
@@ -289,6 +260,7 @@ function AdminPanel() {
       <div className="bg-green-700 text-white p-4 sticky top-0 z-10 shadow-md flex justify-between items-center">
         <h1 className="text-xl font-bold">KGN Admin</h1>
         <div className="flex gap-3">
+             <button onClick={enableVoice} className="bg-green-800 p-2 rounded-full border border-green-600 animate-pulse text-white flex gap-1 items-center px-3"><Mic size={16}/> <span className="text-xs font-bold">Voice</span></button>
              {activeTab === 'products' && (
                 <div className="flex gap-2">
                     <button onClick={bulkImport} className="bg-green-800 p-2 rounded-full border border-green-600 shadow-sm" title="Import Video Items"><DownloadCloud size={20}/></button>
@@ -422,7 +394,7 @@ function AdminPanel() {
                         <div className="bg-gray-50 p-3 rounded-lg mb-4 text-sm border border-gray-100">
                             <p className="font-bold text-gray-500 text-xs uppercase mb-1">Delivery Address</p><p>{viewOrder.address}</p>
                             {viewOrder.location && (
-                                <a href={`https://www.google.com/maps/search/?api=1&query=${viewOrder.location.lat},${viewOrder.location.long}`} target="_blank" rel="noreferrer" className="text-blue-600 underline flex items-center gap-1 mt-2 font-bold">
+                                <a href={`http://googleusercontent.com/maps.google.com/?q=${viewOrder.location.lat},${viewOrder.location.long}`} target="_blank" rel="noreferrer" className="text-blue-600 underline flex items-center gap-1 mt-2 font-bold">
                                     <MapPin size={14}/> Open Map Location
                                 </a>
                             )}
@@ -591,38 +563,29 @@ function Checkout({ cart, clearCart }) {
   };
 
   const handleRazorpay = async () => {
-      // 1. Validation
+      // VALIDATION
       if (!form.name || !form.mobile || !location) return alert("Please fill Name, Mobile & Select Location on Map.");
       
       const res = await loadRazorpayScript();
       if (!res) return alert('Razorpay failed to load');
 
-      // 2. DIRECT PAYMENT (No Server Needed)
+      // FIXED: Client-side only payment (Works in APK without backend)
       const options = {
           key: RAZORPAY_KEY_ID, 
-          amount: total * 100, // Amount in paisa (₹1 = 100 paisa)
+          amount: Math.round(total * 100), 
           currency: "INR",
           name: "MRN Mulla Kirana",
           description: "Grocery Order",
+          // 👇 IMPORTANT: Add your Configuration ID here to show UPI
+          config_id: "conf_YOUR_ID_FROM_DASHBOARD", 
           
-          // This handler runs when payment is SUCCESSFUL
           handler: async function (response) { 
-              // Save the order to Firebase with the Payment ID
               await confirmOrder(`Prepaid (ID: ${response.razorpay_payment_id})`); 
           },
-          prefill: { 
-              name: form.name, 
-              contact: form.mobile, 
-              email: "customer@example.com" 
-          },
+          prefill: { name: form.name, contact: form.mobile, email: "customer@example.com" },
           theme: { color: "#013a2b" },
-          modal: {
-              ondismiss: function() {
-                  alert("Payment Cancelled");
-              }
-          }
+          modal: { ondismiss: function() { alert("Payment Cancelled"); } }
       };
-      
       const paymentObject = new window.Razorpay(options);
       paymentObject.open();
   };
@@ -679,7 +642,6 @@ function Checkout({ cart, clearCart }) {
             <MapContainer center={location ? [location.lat, location.long] : DEFAULT_MAP_CENTER} zoom={14} className="h-full w-full">
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='© OpenStreetMap' />
                 <LocationMarker location={location} setLocation={setLocation} />
-                {/* AUTO RECENTER COMPONENT */}
                 <RecenterAutomatically location={location} />
             </MapContainer>
             {!location && <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-white px-3 py-1 text-xs font-bold shadow rounded-full z-[400] text-red-500">Tap Map to Pin Location</div>}
