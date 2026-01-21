@@ -115,8 +115,11 @@ function AdminRoute({ children }) {
           window.speechSynthesis.speak(warmUp);
       }
       
-      try { await signInWithEmailAndPassword(auth, email, password); } catch { alert("Login failed"); } 
-  };
+      try { 
+        await signInWithEmailAndPassword(auth, email, password); 
+      } catch (error) { 
+        alert("Error: " + error.message); // 👈 This will tell us exactly what is wrong on the phone screen
+      }
 
   if (!Capacitor.isNativePlatform()) return null;
   if (loading) return <div className="h-screen flex items-center justify-center font-bold text-green-700">Verifying...</div>;
@@ -588,29 +591,38 @@ function Checkout({ cart, clearCart }) {
   };
 
   const handleRazorpay = async () => {
-      // VALIDATION
+      // 1. Validation
       if (!form.name || !form.mobile || !location) return alert("Please fill Name, Mobile & Select Location on Map.");
       
       const res = await loadRazorpayScript();
       if (!res) return alert('Razorpay failed to load');
 
-      const data = await fetch('/api/create-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ amount: total })
-      }).then((t) => t.json());
-
+      // 2. DIRECT PAYMENT (No Server Needed)
       const options = {
           key: RAZORPAY_KEY_ID, 
-          amount: data.amount,
-          currency: data.currency,
+          amount: total * 100, // Amount in paisa (₹1 = 100 paisa)
+          currency: "INR",
           name: "MRN Mulla Kirana",
           description: "Grocery Order",
-          order_id: data.id,
-          handler: async function (response) { await confirmOrder('Prepaid (Razorpay)'); },
-          prefill: { name: form.name, contact: form.mobile, email: "customer@example.com" },
+          
+          // This handler runs when payment is SUCCESSFUL
+          handler: async function (response) { 
+              // Save the order to Firebase with the Payment ID
+              await confirmOrder(`Prepaid (ID: ${response.razorpay_payment_id})`); 
+          },
+          prefill: { 
+              name: form.name, 
+              contact: form.mobile, 
+              email: "customer@example.com" 
+          },
           theme: { color: "#013a2b" },
+          modal: {
+              ondismiss: function() {
+                  alert("Payment Cancelled");
+              }
+          }
       };
+      
       const paymentObject = new window.Razorpay(options);
       paymentObject.open();
   };
