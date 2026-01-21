@@ -14,9 +14,12 @@
     "@capacitor/cli": "^8.0.1",
     "@capacitor/core": "^8.0.1",
     "firebase": "^12.8.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^0.562.0",
+    "razorpay": "^2.9.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.12.0"
   },
   "devDependencies": {
